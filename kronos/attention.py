@@ -11,6 +11,7 @@ import logging
 import os
 import warnings
 
+import torch
 from torch import Tensor
 from torch import nn
 
@@ -72,17 +73,32 @@ class Attention(nn.Module):
 
 class MemEffAttention(Attention):
     def forward(self, x: Tensor, attn_bias=None, return_attn=False) -> Tensor:
+        # xFormers memory_efficient_attention does not reliably support returning
+        # full attention weights (and is often unsupported on CPU / fp32). For
+        # those cases, fall back to the reference implementation.
+        if return_attn:
+            return super().forward(x, return_attn=True)
+
         if not XFORMERS_AVAILABLE:
             if attn_bias is not None:
                 raise AssertionError("xFormers is required for using nested tensors")
             return super().forward(x, return_attn)
+
+        # xFormers kernels are generally CUDA-only and fp16/bf16-only.
+        if x.device.type != "cuda" or x.dtype not in (torch.float16, torch.bfloat16):
+            return super().forward(x, return_attn=False)
 
         B, N, C = x.shape
         qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads)
 
         q, k, v = unbind(qkv, 2)
 
-        x = memory_efficient_attention(q, k, v, attn_bias=attn_bias)
+        try:
+            x = memory_efficient_attention(q, k, v, attn_bias=attn_bias)
+        except (NotImplementedError, RuntimeError):
+            # Some xFormers builds expose the op but not the backend for this
+            # device/dtype/layout. Use the safe PyTorch attention path.
+            return super().forward(x, return_attn=False)
         x = x.reshape([B, N, C])
 
         x = self.proj(x)

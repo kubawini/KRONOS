@@ -6,3 +6,5 @@ docs/joint_logo_1.ai
 __pycache__/ca_mea.cpython-312.pyc
 .vscode/launch.json
 
+*.h5
+*.qptiff
