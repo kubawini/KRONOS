@@ -8,3 +8,6 @@ __pycache__/ca_mea.cpython-312.pyc
 
 *.h5
 *.qptiff
+*.tiff
+
+tutorials/chl_maps_dataset*
